@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hollow-chains"
+version = "0.2.0"
+description = "Structural Fidelity vs Semantic Correctness in tiny LM reasoning traces"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "Eren Ata" }]
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "regex>=2023.0",
+    "typer>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "ruff>=0.1",
+    "black>=23.0",
+]
+gpu = [
+    "torch>=2.2,<2.7",
+    "transformers>=4.44,<5",
+    "datasets>=2.20,<4",
+    "tokenizers>=0.19,<0.22",
+    "accelerate>=0.33,<2",
+    "safetensors>=0.4,<0.6",
+]
+
+[project.scripts]
+compute-metrics = "hollow_chains.cli.compute_metrics:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --cov=hollow_chains.metrics --cov-report=term-missing --cov-fail-under=90"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/hollow_chains/cli/*.py" = ["B008"]
+"scripts/train_tokenizer.py" = ["B008"]
+"scripts/create_notebooks.py" = ["E501"]
+
+[tool.black]
+target-version = ["py312"]
+line-length = 88
+
+[tool.coverage.run]
+source = ["hollow_chains.metrics"]
