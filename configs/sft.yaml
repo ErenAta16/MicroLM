@@ -1,0 +1,195 @@
+# Reasoning SFT sweep — baseline + one-axis-at-a-time cells (~16 runs).
+seed: 42
+
+baseline:
+  rung: mid_50m
+  teacher: 1p7b
+  samples: 500
+  epochs: 6
+  format: full
+
+axes:
+  rung: [tiny_1m, small_8m, mid_50m, large_150m]
+  teacher: [0p6b, 1p7b, 4b]
+  samples: [50, 500, 5000, 50000]
+  epochs: [2, 6, 20]
+  format: [full, equation_only]
+
+teachers:
+  0p6b:
+    model_id: Qwen/Qwen3-0.6B-Instruct
+  1p7b:
+    model_id: Qwen/Qwen3-1.7B-Instruct
+  4b:
+    model_id: Qwen/Qwen3-4B-Instruct
+
+# Concrete run cells: baseline + each axis varied (others at baseline).
+# Total: 16 cells (baseline counted once; mid_50m/1p7b/500/6/full overlap).
+run_cells:
+  - id: baseline
+    description: SupraLabs replication cell
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  # --- rung axis (teacher=1p7b, samples=500, epochs=6, format=full) ---
+  - id: rung_tiny_1m
+    axis: rung
+    rung: tiny_1m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: rung_small_8m
+    axis: rung
+    rung: small_8m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: rung_mid_50m
+    axis: rung
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: rung_large_150m
+    axis: rung
+    rung: large_150m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  # --- teacher axis (rung=mid_50m, samples=500, epochs=6, format=full) ---
+  - id: teacher_0p6b
+    axis: teacher
+    rung: mid_50m
+    teacher: 0p6b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: teacher_1p7b
+    axis: teacher
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: teacher_4b
+    axis: teacher
+    rung: mid_50m
+    teacher: 4b
+    samples: 500
+    epochs: 6
+    format: full
+
+  # --- samples axis (rung=mid_50m, teacher=1p7b, epochs=6, format=full) ---
+  - id: samples_50
+    axis: samples
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 50
+    epochs: 6
+    format: full
+
+  - id: samples_500
+    axis: samples
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: samples_5000
+    axis: samples
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 5000
+    epochs: 6
+    format: full
+
+  - id: samples_50000
+    axis: samples
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 50000
+    epochs: 6
+    format: full
+
+  # --- epochs axis (rung=mid_50m, teacher=1p7b, samples=500, format=full) ---
+  - id: epochs_2
+    axis: epochs
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 2
+    format: full
+
+  - id: epochs_6
+    axis: epochs
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: epochs_20
+    axis: epochs
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 20
+    format: full
+
+  # --- format axis (rung=mid_50m, teacher=1p7b, samples=500, epochs=6) ---
+  - id: format_full
+    axis: format
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: full
+
+  - id: format_equation_only
+    axis: format
+    rung: mid_50m
+    teacher: 1p7b
+    samples: 500
+    epochs: 6
+    format: equation_only
+
+training:
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  max_seq_len: 512
+  smoke_max_steps: 1
+  fp16: false
+
+data:
+  seed_problems: 1000
+  teacher_traces_jsonl: null       # pre-supplied traces (skip teacher inference)
+  output_dir: artifacts/sft_data
+  correctness_filter: true
+
+paths:
+  pretrain_checkpoint_root: /content/drive/MyDrive/hollow-chains/checkpoints/pretrain
+  sft_checkpoint_root: /content/drive/MyDrive/hollow-chains/checkpoints/sft
+  runs_dir: runs
+
+tokenizer:
+  path: artifacts/tokenizer
+
+model_ladder:
+  config: configs/model_ladder.yaml

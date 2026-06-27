@@ -1,0 +1,43 @@
+# Causal LM pretraining configuration.
+seed: 42
+
+dataset:
+  name: HuggingFaceFW/fineweb-edu
+  subset: sample-10BT
+  streaming: true
+  text_field: text
+
+token_budget:
+  mode: tokens_per_param          # tokens_per_param | absolute
+  tokens_per_param: 20
+  max_tokens: 1500000000
+
+training:
+  rung: mid_50m
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 8
+  learning_rate: 3.0e-4
+  weight_decay: 0.1
+  warmup_ratio: 0.05
+  max_steps: null                 # derived from token budget when null
+  logging_steps: 50
+  eval_steps: 500
+  save_steps: 1000
+  fp16: false
+  smoke_max_steps: 2
+
+data:
+  context_len: 512
+  shard_dir: artifacts/pretrain_shards
+  smoke_use_synthetic: true
+
+paths:
+  checkpoint_dir: /content/drive/MyDrive/hollow-chains/checkpoints/pretrain
+  output_dir: artifacts/pretrain
+
+tokenizer:
+  config: configs/tokenizer.yaml
+  path: artifacts/tokenizer
+
+model_ladder:
+  config: configs/model_ladder.yaml

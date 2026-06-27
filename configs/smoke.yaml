@@ -1,0 +1,29 @@
+# CPU smoke-test overrides (no network, synthetic data only).
+seed: 0
+
+tokenizer:
+  vocab_size: 512
+  sample_texts: 50
+  output_dir: artifacts/smoke/tokenizer
+
+pretrain:
+  smoke_max_steps: 2
+  context_len: 64
+  shard_dir: artifacts/smoke/pretrain_shards
+
+model:
+  rung: tiny_1m
+  # Override tiny rung for smoke (smaller vocab in smoke tokenizer).
+  target_params: 1000000
+
+sft:
+  smoke_max_steps: 1
+  max_seq_len: 64
+
+generate:
+  max_new_tokens: 64
+  batch_size: 1
+
+paths:
+  checkpoint_dir: artifacts/smoke/checkpoints
+  output_jsonl: artifacts/smoke/generations.jsonl

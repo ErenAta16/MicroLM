@@ -1,0 +1,54 @@
+# Model ladder — param budgets with resolved architectures (vocab=16000, ctx=512).
+shared:
+  vocab_size: 16000
+  context_len: 512
+  tied_embeddings: true
+  rope: true
+  depth_width_ratio: 1.0
+
+rungs:
+  tiny_1m:
+    target_params: 1000000
+    resolved:
+      hidden_size: 56
+      num_hidden_layers: 1
+      num_attention_heads: 1
+      intermediate_size: 256
+      realized_params: 951720
+
+  small_8m:
+    target_params: 8000000
+    resolved:
+      hidden_size: 320
+      num_hidden_layers: 2
+      num_attention_heads: 5
+      intermediate_size: 896
+      realized_params: 7661120
+
+  mid_50m:
+    target_params: 50000000
+    resolved:
+      hidden_size: 836
+      num_hidden_layers: 4
+      num_attention_heads: 11
+      intermediate_size: 2304
+      realized_params: 47679588
+
+  large_150m:
+    target_params: 150000000
+    resolved:
+      hidden_size: 1404
+      num_hidden_layers: 5
+      num_attention_heads: 18
+      intermediate_size: 3840
+      realized_params: 142774164
+
+  xl_350m:
+    target_params: 350000000
+    optional: true
+    resolved:
+      hidden_size: 1888
+      num_hidden_layers: 7
+      num_attention_heads: 16
+      intermediate_size: 5120
+      realized_params: 333041312

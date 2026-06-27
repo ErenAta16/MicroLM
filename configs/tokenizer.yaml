@@ -1,0 +1,20 @@
+# Frozen ByteLevel BPE tokenizer shared across all rungs and SFT runs.
+vocab_size: 16000
+type: byte_level_bpe
+
+special_tokens:
+  pad: "<|pad|>"
+  bos: "<|bos|>"
+  eos: "<|eos|>"
+  # Reasoning tags — strings imported from M1 parse constants at train time.
+  begin_thought: "<|begin_of_thought|>"
+  end_thought: "<|end_of_thought|>"
+  begin_solution: "<|begin_of_solution|>"
+  end_solution: "<|end_of_solution|>"
+
+training:
+  sample_texts: 50000        # texts sampled from pretrain corpus for full train
+  smoke_sample_texts: 200    # CPU smoke test sample count
+  min_frequency: 2
+
+output_dir: artifacts/tokenizer

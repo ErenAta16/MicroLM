@@ -1,0 +1,39 @@
+# Generation harness — bridge to M1 metrics.
+seed: 42
+
+decoding:
+  do_sample: false
+  temperature: 1.0
+  max_new_tokens: 256
+  capture_token_entropies: true
+
+batch_size: 4
+
+task_sets:
+  - arithmetic
+  - symbolic
+  - factual_mcq
+
+model_sources:
+  # Own trained checkpoints (SFT output).
+  trained:
+    enabled: true
+    checkpoint_root: /content/drive/MyDrive/hollow-chains/checkpoints/sft
+
+  # External HF models (replication arm).
+  external:
+    enabled: true
+    models:
+      - id: supra_50m
+        hf_id: SupraLabs/Supra-50M-Reasoning
+        use_own_tokenizer: true
+
+paths:
+  output_dir: /content/drive/MyDrive/hollow-chains/generations
+  metrics_config: configs/metrics.yaml
+
+tokenizer:
+  path: artifacts/tokenizer
+
+sft:
+  config: configs/sft.yaml
