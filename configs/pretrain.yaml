@@ -32,7 +32,7 @@ data:
   smoke_use_synthetic: true
 
 paths:
-  checkpoint_dir: /content/drive/MyDrive/hollow-chains/checkpoints/pretrain
+  checkpoint_dir: ${DRIVE_ROOT}/checkpoints/pretrain
   output_dir: artifacts/pretrain
 
 tokenizer:

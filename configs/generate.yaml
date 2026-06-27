@@ -18,7 +18,7 @@ model_sources:
   # Own trained checkpoints (SFT output).
   trained:
     enabled: true
-    checkpoint_root: /content/drive/MyDrive/hollow-chains/checkpoints/sft
+    checkpoint_root: ${DRIVE_ROOT}/checkpoints/sft
 
   # External HF models (replication arm).
   external:
@@ -26,10 +26,10 @@ model_sources:
     models:
       - id: supra_50m
         hf_id: SupraLabs/Supra-50M-Reasoning
-        use_own_tokenizer: true
+        use_own_tokenizer: false
 
 paths:
-  output_dir: /content/drive/MyDrive/hollow-chains/generations
+  output_dir: ${DRIVE_ROOT}/generations
   metrics_config: configs/metrics.yaml
 
 tokenizer:
