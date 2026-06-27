@@ -165,13 +165,24 @@ def load_model_and_tokenizer(
     own_tokenizer_path: str | Path | None = None,
 ):
     """Load model + tokenizer from checkpoint or external HF id."""
+    import logging
+
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    logger = logging.getLogger(__name__)
 
     if external_hf_id:
         model = AutoModelForCausalLM.from_pretrained(external_hf_id)
         if use_own_tokenizer and own_tokenizer_path:
             tokenizer = AutoTokenizer.from_pretrained(str(own_tokenizer_path))
+        elif use_own_tokenizer and not own_tokenizer_path:
+            logger.warning(
+                "use_own_tokenizer=True without own_tokenizer_path for %s; "
+                "falling back to the model's tokenizer",
+                external_hf_id,
+            )
+            tokenizer = AutoTokenizer.from_pretrained(external_hf_id)
         else:
             tokenizer = AutoTokenizer.from_pretrained(external_hf_id)
     else:
