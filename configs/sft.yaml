@@ -17,11 +17,17 @@ axes:
 
 teachers:
   0p6b:
-    model_id: Qwen/Qwen3-0.6B-Instruct
+    model_id: Qwen/Qwen3-0.6B
   1p7b:
-    model_id: Qwen/Qwen3-1.7B-Instruct
+    model_id: Qwen/Qwen3-1.7B
   4b:
-    model_id: Qwen/Qwen3-4B-Instruct
+    model_id: Qwen/Qwen3-4B
+
+teacher_gen:
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  max_new_tokens: 512
 
 # Concrete run cells: baseline + each axis varied (others at baseline).
 # Total: 16 cells (baseline counted once; mid_50m/1p7b/500/6/full overlap).
@@ -180,12 +186,13 @@ training:
 data:
   seed_problems: 1000
   teacher_traces_jsonl: null       # pre-supplied traces (skip teacher inference)
+  teacher_cache_dir: artifacts/teacher_cache
   output_dir: artifacts/sft_data
   correctness_filter: true
 
 paths:
-  pretrain_checkpoint_root: /content/drive/MyDrive/hollow-chains/checkpoints/pretrain
-  sft_checkpoint_root: /content/drive/MyDrive/hollow-chains/checkpoints/sft
+  pretrain_checkpoint_root: ${DRIVE_ROOT}/checkpoints/pretrain
+  sft_checkpoint_root: ${DRIVE_ROOT}/checkpoints/sft
   runs_dir: runs
 
 tokenizer:

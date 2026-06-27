@@ -162,17 +162,46 @@ def build_sft_jsonl(
     problems = expand_seed_problems(int(data_cfg.get("seed_problems", 1000)), seed=seed)
     kept: list[SFTExample] = []
     attempted = 0
+    cache_dir = Path(data_cfg.get("teacher_cache_dir", "artifacts/teacher_cache"))
+    teachers_cfg = config.get("teachers", {})
+    teacher_gen = config.get("teacher_gen", {})
 
     for sample, task_type in problems:
         if len(kept) >= samples:
             break
         attempted += 1
+        raw: str | None = None
+
         if smoke or teacher == "heuristic":
             raw = teacher_trace_heuristic(sample, task_type)
         else:
-            raw = teacher_trace_heuristic(
-                sample, task_type
-            )  # Colab: swap for HF teacher
+            from hollow_chains.data.teacher_hf import (
+                generate_teacher_trace,
+                load_teacher_cache,
+                qwen_to_schema,
+                save_teacher_cache,
+                teacher_cache_path,
+            )
+
+            cache_path = teacher_cache_path(cache_dir, teacher, task_type, sample.id)
+            completion = load_teacher_cache(cache_path)
+            if completion is None:
+                teacher_id = teachers_cfg.get(teacher, {}).get("model_id")
+                if not teacher_id:
+                    raise KeyError(f"No model_id for teacher '{teacher}' in sft.yaml")
+                completion = generate_teacher_trace(
+                    sample,
+                    task_type,
+                    teacher_id,
+                    gen_cfg=teacher_gen,
+                )
+                if completion:
+                    save_teacher_cache(cache_path, completion)
+            raw = (
+                qwen_to_schema(completion, sample.gold, task_type)
+                if completion
+                else None
+            )
         if raw is None:
             continue
         if data_cfg.get("correctness_filter", True) and not passes_correctness_filter(
