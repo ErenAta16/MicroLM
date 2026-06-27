@@ -1,0 +1,32 @@
+tags:
+  begin_thought: "<|begin_of_thought|>"
+  end_thought: "<|end_of_thought|>"
+  begin_solution: "<|begin_of_solution|>"
+  end_solution: "<|end_of_solution|>"
+
+structural_fidelity:
+  weights:
+    parse_rate: 0.15
+    tag_validity: 0.20
+    section_ratio_conformity: 0.15
+    length_conformity: 0.15
+    template_ngram_overlap: 0.15
+    entropy_profile: 0.10
+    repetition: 0.10
+  ngram_n: 3
+
+semantic_correctness:
+  weights:
+    answer_accuracy: 0.70
+    step_validity: 0.30
+
+gap:
+  tau_high: 0.8
+  tau_low: 0.2
+
+teacher_opening_templates:
+  - "okay the user wants"
+  - "let me start by recalling"
+  - "so the key points are"
+  - "first i need to understand"
+  - "the question asks us to"
