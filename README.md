@@ -1,0 +1,117 @@
+# hollow-chains
+
+Measure **Structural Fidelity (SF)** vs **Semantic Correctness (SC)** in reasoning traces from tiny language models — and the gap between them ("theater": well-formed but wrong).
+
+## Install
+
+```bash
+pip install -e ".[dev]"        # M1 metrics only (CPU)
+pip install -e ".[dev,gpu]"    # M2 training + generation (Colab / GPU)
+```
+
+Target Python: **3.12** (Colab parity).
+
+## M1 — Metrics
+
+Compute metrics on a JSONL file of `GenerationRecord` samples:
+
+```bash
+compute-metrics --records data/records.jsonl --config configs/metrics.yaml --out report.json
+```
+
+## M2 — Train → Generate → Metrics
+
+```mermaid
+flowchart LR
+  A[Tokenizer] --> B[Pretrain shard]
+  B --> C[Pretrain ladder]
+  C --> D[SFT reasoning traces]
+  D --> E[generate_records]
+  E --> F[GenerationRecord JSONL]
+  F --> G[M1 compute-metrics]
+```
+
+1. **Tokenizer** — one frozen ByteLevel BPE (`configs/tokenizer.yaml`), reasoning tags imported from M1.
+2. **Pretrain** — causal LM on FineWeb-Edu shard for each ladder rung.
+3. **SFT** — reasoning traces with M1 tag schema; one-axis sweeps in `configs/sft.yaml`.
+4. **Generate** — `generate_records()` writes schema-valid JSONL with optional token entropies.
+5. **Metrics** — same M1 CLI; no torch in the metrics layer.
+
+### Model ladder (vocab=16000, ctx=512, tied embeddings)
+
+| Rung | Target | Realized | hidden | layers | heads | intermediate |
+|------|--------|----------|--------|--------|-------|--------------|
+| tiny_1m | 1,000,000 | 951,720 | 56 | 1 | 1 | 256 |
+| small_8m | 8,000,000 | 7,661,120 | 320 | 2 | 5 | 896 |
+| mid_50m | 50,000,000 | 47,679,588 | 836 | 4 | 11 | 2304 |
+| large_150m | 150,000,000 | 142,774,164 | 1404 | 5 | 18 | 3840 |
+| xl_350m | 350,000,000 | 333,041,312 | 1888 | 7 | 16 | 5120 |
+
+Print live table: `python -m hollow_chains.models.ladder`
+
+At **tiny_1m**, ~96% of weights are the shared vocab embedding matrix — expected for this vocab size.
+
+### Colab notebooks
+
+| Notebook | Purpose |
+|----------|---------|
+| `notebooks/00_setup_colab.ipynb` | Mount Drive, train tokenizer, materialize pretrain shard |
+| `notebooks/01_pretrain_ladder.ipynb` | Pretrain each rung |
+| `notebooks/02_sft_sweeps.ipynb` | Build SFT data + run sweep cells |
+| `notebooks/03_generate_emergence.ipynb` | Generate JSONL + M1 reports |
+
+Each notebook has a config cell at the top and lists artifacts written at the end.
+
+### Local CPU smoke test
+
+Verifies the full loop without network/GPU:
+
+```bash
+pytest tests/test_pipeline_smoke.py -v
+```
+
+Runs: micro tokenizer → tiny_1m pretrain (2 steps) → SFT (1 step) → 1 generation → M1 metrics.
+
+## Development
+
+```bash
+make test    # M1 metrics (>90% coverage) + M2 smoke test
+make lint    # ruff + black
+```
+
+## Milestones
+
+| Milestone | Scope | Status |
+|-----------|-------|--------|
+| **M1** | Metrics layer, schema, parser, CLI | **Done** |
+| **M2** | Tokenizer, ladder, pretrain, SFT, generate, Colab | **Done** |
+| **M3** | Bit-flip + quantization corruption | Pending |
+| **M4** | Degradation eval, aggregation, visualization | Pending |
+
+## Project structure
+
+```
+MicroLM/
+├── configs/
+│   ├── metrics.yaml
+│   ├── tokenizer.yaml
+│   ├── model_ladder.yaml
+│   ├── pretrain.yaml
+│   ├── sft.yaml
+│   ├── generate.yaml
+│   └── smoke.yaml
+├── notebooks/          # Colab orchestration
+├── scripts/
+│   ├── compute_metrics.py
+│   └── train_tokenizer.py
+├── src/hollow_chains/
+│   ├── data/           # schema, tokenizer, pretrain_data, build_reasoning_sft
+│   ├── metrics/        # M1 — torch-free
+│   ├── models/         # ladder (Llama + param solver)
+│   ├── train/          # pretrain, sft
+│   ├── eval/           # generate, run_emergence
+│   └── ...
+└── tests/
+    ├── test_metrics.py
+    └── test_pipeline_smoke.py
+```
