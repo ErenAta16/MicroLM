@@ -72,6 +72,37 @@ pytest tests/test_pipeline_smoke.py -v
 
 Runs: micro tokenizer → tiny_1m pretrain (2 steps) → SFT (1 step) → 1 generation → M1 metrics.
 
+## Generation recipes
+
+Validated prompt formats and decoding for external HuggingFace checkpoints (`generate_with_recipe` in `eval/generate.py`).
+
+### Reasoning (`SupraLabs/*-Reasoning`)
+
+| Field | Value |
+|-------|-------|
+| System | Your role as an assistant involves thoroughly exploring questions through a systematic long thinking process before providing the final precise and accurate solutions. |
+| Prompt | `[SYSTEM]: {system}\n\n[USER]: {question}\n\n[ASSISTANT]: <|begin_of_thought|>\n` |
+| Decoding | `do_sample=True`, `temperature=0.3`, `top_k=25`, `top_p=0.8`, `repetition_penalty=1.3`, `max_new_tokens=512` |
+| Post | Decode with `skip_special_tokens=False`, strip `<s>`/`</s>`, prepend `<|begin_of_thought|>\n` |
+
+### Instruct (`SupraLabs/*-Instruct`)
+
+| Field | Value |
+|-------|-------|
+| Prompt | Alpaca: `Below is an instruction... ### Instruction:\n{question}\n\n### Response:\n` |
+| Decoding | `do_sample=True`, `temperature=0.7`, `top_k=50`, `top_p=0.9`, `repetition_penalty=1.15`, `max_new_tokens=300` |
+| Post | No prepend |
+
+### Qwen3 teacher (SFT data)
+
+| Field | Value |
+|-------|-------|
+| Models | `Qwen/Qwen3-0.6B`, `Qwen/Qwen3-1.7B`, `Qwen/Qwen3-4B` |
+| Prompt | `apply_chat_template(..., enable_thinking=True)` |
+| Decoding | `do_sample=True`, `temperature=0.6`, `top_p=0.95`, `top_k=20`, `max_new_tokens=512` |
+| SFT prompt | Same reasoning format as eval (open `<|begin_of_thought|>` in masked prompt) |
+| External-base SFT defaults | `epochs=6`, `lr=3e-4`, `batch_size=4`, `max_len=768` (`configs/scale_ladder.yaml`) |
+
 ## Development
 
 ```bash
@@ -98,6 +129,7 @@ MicroLM/
 │   ├── model_ladder.yaml
 │   ├── pretrain.yaml
 │   ├── sft.yaml
+│   ├── scale_ladder.yaml
 │   ├── generate.yaml
 │   └── smoke.yaml
 ├── notebooks/          # Colab orchestration

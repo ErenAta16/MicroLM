@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -12,9 +13,16 @@ from hollow_chains.data.tasks import (
     load_factual_mcq,
     load_symbolic_samples,
 )
+from hollow_chains.eval.recipes import (
+    get_recipe,
+    postprocess_generation,
+)
 from hollow_chains.metrics.parse import parse_trace
 
 TaskType = Literal["arithmetic", "symbolic", "factual_mcq"]
+
+logger = logging.getLogger(__name__)
+_TRANSFORMERS_PATCHED = False
 
 
 @dataclass
@@ -42,6 +50,18 @@ def load_eval_tasks(task_sets: list[str]) -> list[EvalTask]:
     return tasks
 
 
+def _apply_transformers_compat() -> None:
+    """Patch TokenizersBackend for SupraLabs fast tokenizers on transformers 4.x."""
+    global _TRANSFORMERS_PATCHED
+    if _TRANSFORMERS_PATCHED:
+        return
+    import transformers
+
+    if not hasattr(transformers, "TokenizersBackend"):
+        transformers.TokenizersBackend = transformers.PreTrainedTokenizerFast
+    _TRANSFORMERS_PATCHED = True
+
+
 def _entropy_from_scores(scores) -> list[float]:
     """Compute per-step Shannon entropy from generation scores."""
     import torch
@@ -56,6 +76,105 @@ def _entropy_from_scores(scores) -> list[float]:
     return entropies
 
 
+def _run_generate(
+    model,
+    tokenizer,
+    prompt_text: str,
+    decoding: dict[str, Any],
+    *,
+    capture_entropy: bool = True,
+) -> tuple[str, list[float] | None]:
+    """Tokenize, generate, and decode new tokens."""
+    import torch
+
+    enc = tokenizer(prompt_text, return_tensors="pt")
+    enc.pop("token_type_ids", None)
+    device = next(model.parameters()).device
+    inputs = {
+        k: v.to(device) for k, v in enc.items() if k in ("input_ids", "attention_mask")
+    }
+
+    gen_kwargs: dict[str, Any] = {
+        **decoding,
+        "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
+        "return_dict_in_generate": True,
+        "output_scores": capture_entropy,
+    }
+
+    with torch.no_grad():
+        outputs = model.generate(**inputs, **gen_kwargs)
+
+    new_text = tokenizer.decode(
+        outputs.sequences[0, inputs["input_ids"].shape[1] :],
+        skip_special_tokens=False,
+    )
+
+    entropies: list[float] | None = None
+    if capture_entropy and hasattr(outputs, "scores") and outputs.scores:
+        entropies = _entropy_from_scores(outputs.scores)
+
+    return new_text, entropies
+
+
+def generate_with_recipe(
+    model,
+    tokenizer,
+    task_records: list[EvalTask],
+    recipe_name: str,
+    *,
+    model_id: str = "local",
+    capture_entropies: bool = True,
+) -> list[GenerationRecord]:
+    """Generate using a validated recipe registry entry.
+
+    Args:
+        model: Causal LM.
+        tokenizer: Matching tokenizer.
+        task_records: Evaluation tasks.
+        recipe_name: ``reasoning`` or ``instruct``.
+        model_id: Stored in record meta.
+        capture_entropies: Whether to record per-token entropies.
+
+    Returns:
+        List of GenerationRecord objects.
+    """
+    recipe = get_recipe(recipe_name)
+    records: list[GenerationRecord] = []
+    model.eval()
+
+    for task in task_records:
+        prompt_text = recipe.format_prompt(task.prompt)
+        new_text, entropies = _run_generate(
+            model,
+            tokenizer,
+            prompt_text,
+            recipe.decoding,
+            capture_entropy=capture_entropies,
+        )
+        generation = postprocess_generation(new_text, recipe)
+
+        parsed = parse_trace(generation)
+        records.append(
+            GenerationRecord(
+                id=task.id,
+                prompt=task.prompt,
+                task_type=task.task_type,
+                gold=task.gold,
+                generation=generation,
+                think=parsed.think or None,
+                solution=parsed.solution or None,
+                token_entropies=entropies,
+                meta={
+                    "model_id": model_id,
+                    "recipe": recipe_name,
+                    **recipe.decoding,
+                },
+            )
+        )
+
+    return records
+
+
 def generate_records(
     model,
     tokenizer,
@@ -64,18 +183,7 @@ def generate_records(
     *,
     model_id: str = "local",
 ) -> list[GenerationRecord]:
-    """Generate completions and return M1 GenerationRecord objects.
-
-    Args:
-        model: Causal LM (local checkpoint or HF model).
-        tokenizer: Matching tokenizer (external models use their own).
-        task_records: Prompts with gold labels.
-        decoding_cfg: Decoding options from generate.yaml.
-        model_id: Identifier stored in record meta.
-
-    Returns:
-        List of validated GenerationRecord instances.
-    """
+    """Generate completions with a generic decoding config (local checkpoints)."""
     import torch
 
     records: list[GenerationRecord] = []
@@ -88,10 +196,11 @@ def generate_records(
     device = next(model.parameters()).device
 
     for task in task_records:
-        inputs = tokenizer(task.prompt, return_tensors="pt")
+        enc = tokenizer(task.prompt, return_tensors="pt")
+        enc.pop("token_type_ids", None)
         inputs = {
             k: v.to(device)
-            for k, v in inputs.items()
+            for k, v in enc.items()
             if k in ("input_ids", "attention_mask")
         }
         gen_kwargs: dict[str, Any] = {
@@ -107,8 +216,6 @@ def generate_records(
         with torch.no_grad():
             outputs = model.generate(**inputs, **gen_kwargs)
 
-        new_tokens = outputs.sequences[0, inputs["input_ids"].shape[1] :]
-        del new_tokens
         full_generation = tokenizer.decode(
             outputs.sequences[0], skip_special_tokens=False
         )
@@ -165,14 +272,11 @@ def load_model_and_tokenizer(
     own_tokenizer_path: str | Path | None = None,
 ):
     """Load model + tokenizer from checkpoint or external HF id."""
-    import logging
-
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    logger = logging.getLogger(__name__)
-
     if external_hf_id:
+        _apply_transformers_compat()
         model = AutoModelForCausalLM.from_pretrained(external_hf_id)
         if use_own_tokenizer and own_tokenizer_path:
             tokenizer = AutoTokenizer.from_pretrained(str(own_tokenizer_path))
