@@ -1,0 +1,48 @@
+# External-base scale ladder — pretrained HF checkpoints (not local pretrain).
+seed: 42
+
+bases:
+  - id: pythia_14m
+    hf_id: EleutherAI/pythia-14m
+  - id: pythia_70m
+    hf_id: EleutherAI/pythia-70m
+  - id: pythia_160m
+    hf_id: EleutherAI/pythia-160m
+  - id: pythia_410m
+    hf_id: EleutherAI/pythia-410m
+  - id: supra_50m_base
+    hf_id: SupraLabs/Supra-50M-Base
+
+training:
+  epochs: 6
+  learning_rate: 3.0e-4
+  per_device_train_batch_size: 4
+  max_seq_len: 768
+  gradient_accumulation_steps: 4
+  weight_decay: 0.01
+  warmup_ratio: 0.03
+  smoke_max_steps: 1
+
+data:
+  seed_problems: 1000
+  teacher_cache_dir: artifacts/teacher_cache
+  output_dir: artifacts/sft_data
+  correctness_filter: true
+
+paths:
+  sft_checkpoint_root: ${DRIVE_ROOT}/checkpoints/sft_scale
+  runs_dir: runs
+
+teachers:
+  0p6b:
+    model_id: Qwen/Qwen3-0.6B
+  1p7b:
+    model_id: Qwen/Qwen3-1.7B
+  4b:
+    model_id: Qwen/Qwen3-4B
+
+teacher_gen:
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  max_new_tokens: 512

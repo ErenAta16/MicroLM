@@ -74,12 +74,13 @@ def run_sft(
     pretrain_checkpoint: Path | None = None,
     sft_jsonl: Path | None = None,
     smoke: bool = False,
+    base_hf_id: str | None = None,
 ) -> Path:
     """Run SFT on reasoning traces for one sweep cell.
 
     Args:
         config: Parsed sft.yaml.
-        rung: Model ladder rung name.
+        rung: Model ladder rung name (ignored when ``base_hf_id`` is set).
         teacher: Teacher key.
         samples: SFT sample count.
         epochs: Training epochs.
@@ -87,6 +88,7 @@ def run_sft(
         pretrain_checkpoint: Base model checkpoint path.
         sft_jsonl: Pre-built SFT JSONL path.
         smoke: Use smoke_max_steps.
+        base_hf_id: Load an external HF pretrained base instead of a local checkpoint.
 
     Returns:
         Path to SFT checkpoint directory.
@@ -98,11 +100,27 @@ def run_sft(
     seed = int(config.get("seed", 42))
     set_seed(seed)
 
-    ladder_cfg = load_config(
-        config.get("model_ladder", {}).get("config", "configs/model_ladder.yaml")
-    )
-    tok_path = Path(config.get("tokenizer", {}).get("path", "artifacts/tokenizer"))
-    tokenizer = load_tokenizer(pretrain_checkpoint if pretrain_checkpoint else tok_path)
+    train_cfg = config.get("training", {})
+    external = base_hf_id is not None
+
+    if external:
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        model = AutoModelForCausalLM.from_pretrained(
+            base_hf_id,
+            torch_dtype=torch.float32,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(base_hf_id)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+    else:
+        ladder_cfg = load_config(
+            config.get("model_ladder", {}).get("config", "configs/model_ladder.yaml")
+        )
+        tok_path = Path(config.get("tokenizer", {}).get("path", "artifacts/tokenizer"))
+        tokenizer = load_tokenizer(
+            pretrain_checkpoint if pretrain_checkpoint else tok_path
+        )
 
     if sft_jsonl is None:
         from hollow_chains.data.build_reasoning_sft import build_sft_jsonl
@@ -112,40 +130,55 @@ def run_sft(
         )
 
     records = load_sft_jsonl(sft_jsonl)
-    train_cfg = config.get("training", {})
-    max_seq = int(train_cfg.get("max_seq_len", 512))
+    default_max_seq = 768 if external else 512
+    max_seq = int(train_cfg.get("max_seq_len", default_max_seq))
     dataset: Dataset = SFTDataset(records, tokenizer, max_seq_len=max_seq)  # type: ignore[assignment]
 
-    if pretrain_checkpoint and (pretrain_checkpoint / "config.json").exists():
+    if external:
+        pass  # model + tokenizer already loaded
+    elif pretrain_checkpoint and (pretrain_checkpoint / "config.json").exists():
         from transformers import AutoModelForCausalLM
 
         model = AutoModelForCausalLM.from_pretrained(str(pretrain_checkpoint))
     else:
+        ladder_cfg = load_config(
+            config.get("model_ladder", {}).get("config", "configs/model_ladder.yaml")
+        )
         model = build_model(rung_name=rung, ladder_config=ladder_cfg)
         model.resize_token_embeddings(len(tokenizer))
 
-    cell_id = f"{rung}_{teacher}_{samples}_{epochs}_{fmt}"
+    if external:
+        cell_id = f"{base_hf_id.replace('/', '__')}_{teacher}_{samples}_{epochs}_{fmt}"
+    else:
+        cell_id = f"{rung}_{teacher}_{samples}_{epochs}_{fmt}"
     root = Path(config.get("paths", {}).get("sft_checkpoint_root", "artifacts/sft"))
     runs_dir = Path(config.get("paths", {}).get("runs_dir", "runs"))
     out_dir = root / runs_dir / cell_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    default_epochs = 6 if external else epochs
+    effective_epochs = (
+        int(train_cfg.get("epochs", default_epochs)) if external else int(epochs)
+    )
+    default_lr = 3e-4 if external else float(train_cfg.get("learning_rate", 2e-5))
+    default_batch = 4
+
     max_steps = int(train_cfg.get("smoke_max_steps", 1)) if smoke else None
     if max_steps is None:
-        batch = int(train_cfg.get("per_device_train_batch_size", 4))
+        batch = int(train_cfg.get("per_device_train_batch_size", default_batch))
         steps_per_epoch = max(1, len(dataset) // batch)
-        max_steps = steps_per_epoch * int(epochs)
+        max_steps = steps_per_epoch * effective_epochs
 
     args = TrainingArguments(
         output_dir=str(out_dir),
         max_steps=int(max_steps),
         per_device_train_batch_size=int(
-            train_cfg.get("per_device_train_batch_size", 4)
+            train_cfg.get("per_device_train_batch_size", default_batch)
         ),
         gradient_accumulation_steps=int(
             train_cfg.get("gradient_accumulation_steps", 4)
         ),
-        learning_rate=float(train_cfg.get("learning_rate", 2e-5)),
+        learning_rate=float(train_cfg.get("learning_rate", default_lr)),
         weight_decay=float(train_cfg.get("weight_decay", 0.01)),
         warmup_ratio=float(train_cfg.get("warmup_ratio", 0.03)),
         logging_steps=1,
