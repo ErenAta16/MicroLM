@@ -2,42 +2,51 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import Any
 
 from hollow_chains.data.tasks import TaskSample
-from hollow_chains.metrics.parse import (
-    TAG_BEGIN_SOLUTION,
-    TAG_BEGIN_THOUGHT,
-    TAG_END_SOLUTION,
-    TAG_END_THOUGHT,
-    parse_trace,
-)
-from hollow_chains.metrics.semantic import extract_answer
 
-# Qwen3 reasoning spans (native think tags; fixtures may use redacted_thinking names).
-_THINK_PATTERNS = [
-    re.compile(r"<\s*think\s*>(.*?)</\s*think\s*>", re.DOTALL | re.IGNORECASE),
-    re.compile(
-        r"<think>(.*?)</think>",
-        re.DOTALL | re.IGNORECASE,
-    ),
-]
-
-_ANSWER_LINE_RE = re.compile(
-    r"(?:the answer is|final answer is|answer:)\s*.+",
-    re.IGNORECASE,
+# Qwen3 teacher output mapping (validated).
+_QWEN_THINK_RE = re.compile(
+    r"<think>(.*?)</think>(.*)",
+    re.S,
 )
 
 _MODEL_CACHE: dict[str, tuple[Any, Any]] = {}
 
 
-def _wrap_trace(think: str, solution: str) -> str:
-    return (
-        f"{TAG_BEGIN_THOUGHT} {think} {TAG_END_THOUGHT} "
-        f"{TAG_BEGIN_SOLUTION} {solution} {TAG_END_SOLUTION}"
-    )
+def norm_num(s: str) -> float | None:
+    """Extract the last numeric literal from text (period-tolerant)."""
+    m = re.findall(r"-?\d+\.?\d*", str(s))
+    return float(m[-1].rstrip(".")) if m else None
+
+
+def is_correct(text: str, gold: str) -> bool:
+    """Numeric-robust correctness check for teacher trace filtering."""
+    p, g = norm_num(text), norm_num(gold)
+    return p is not None and g is not None and abs(p - g) < 1e-6
+
+
+def map_qwen_output(raw: str) -> tuple[str, str]:
+    """Map Qwen3 teacher decode to (thought, answer) text.
+
+    If no think tags are present, the whole string is used for both fields.
+    """
+    cleaned = raw.replace("<|im_end|>", "").strip()
+    if not cleaned:
+        return "", ""
+
+    match = _QWEN_THINK_RE.search(cleaned)
+    if match:
+        thought = match.group(1).strip()
+        answer = match.group(2).strip()
+    else:
+        thought = cleaned
+        answer = cleaned
+    return thought, answer
 
 
 def _load_teacher(teacher_id: str) -> tuple[Any, Any]:
@@ -57,24 +66,13 @@ def _load_teacher(teacher_id: str) -> tuple[Any, Any]:
 
 def _build_teacher_prompt(problem: str, tokenizer) -> str:
     """Format the user message with the teacher chat template (thinking mode)."""
-    user_content = (
-        problem + " Please reason step by step, and put your final answer on the "
-        "last line as 'The answer is <X>.'"
+    messages = [{"role": "user", "content": problem}]
+    return tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+        enable_thinking=True,
     )
-    messages = [{"role": "user", "content": user_content}]
-    try:
-        return tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=True,
-        )
-    except TypeError:
-        return tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
 
 
 def generate_teacher_trace(
@@ -109,12 +107,11 @@ def generate_teacher_trace(
 
     model, tokenizer = _load_teacher(teacher_id)
     prompt_text = _build_teacher_prompt(sample.prompt, tokenizer)
-    inputs = tokenizer(prompt_text, return_tensors="pt")
+    enc = tokenizer(prompt_text, return_tensors="pt")
+    enc.pop("token_type_ids", None)
     device = next(model.parameters()).device
     inputs = {
-        k: v.to(device)
-        for k, v in inputs.items()
-        if k in ("input_ids", "attention_mask")
+        k: v.to(device) for k, v in enc.items() if k in ("input_ids", "attention_mask")
     }
 
     with torch.no_grad():
@@ -135,68 +132,39 @@ def generate_teacher_trace(
     return completion.strip() or None
 
 
-def _extract_qwen_thinking(raw: str) -> str:
-    """Pull thinking text from Qwen-style tags or text before the answer line."""
-    for pattern in _THINK_PATTERNS:
-        match = pattern.search(raw)
-        if match:
-            return match.group(1).strip()
-
-    answer_match = _ANSWER_LINE_RE.search(raw)
-    if answer_match:
-        return raw[: answer_match.start()].strip()
-    return raw.strip()
-
-
-def _extract_final_answer_line(raw: str) -> str:
-    """Extract the final answer line for the solution block."""
-    answer_match = _ANSWER_LINE_RE.search(raw)
-    if answer_match:
-        return answer_match.group(0).strip()
-    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-    return lines[-1] if lines else raw.strip()
-
-
 def qwen_to_schema(raw_completion: str, gold: str, task_type: str) -> str | None:
-    """Map Qwen teacher output into the M1 reasoning tag schema.
+    """Map Qwen teacher output into a well-formed M1 schema trace string.
 
-    Args:
-        raw_completion: Raw teacher decode (may include thinking tags).
-        gold: Ground-truth answer (unused for text fabrication).
-        task_type: Task type for post-map validation.
-
-    Returns:
-        Formatted trace string, or None if mapping fails.
+    Returns None when mapping yields no usable content. Correctness filtering
+    is handled separately via ``is_correct``.
     """
-    del gold
+    del gold, task_type
+    from hollow_chains.data.sft_format import schema_trace_from_parts
+    from hollow_chains.metrics.parse import parse_trace
+
     if not raw_completion or not raw_completion.strip():
         return None
 
-    think = _extract_qwen_thinking(raw_completion)
-    solution = _extract_final_answer_line(raw_completion)
-    if not think and not solution:
+    thought, answer = map_qwen_output(raw_completion)
+    if not thought and not answer:
         return None
 
-    trace = _wrap_trace(think, solution)
+    trace = schema_trace_from_parts(thought, answer)
     parsed = parse_trace(trace)
-    if not parsed.well_formed and not (think or solution):
-        return None
-
-    extracted = extract_answer(parsed, task_type)
-    if not extracted and not solution:
+    if not parsed.well_formed:
         return None
     return trace
 
 
 def teacher_cache_path(
     cache_dir: Path,
-    teacher: str,
-    task_type: str,
-    problem_id: str,
+    teacher_id: str,
+    question: str,
 ) -> Path:
-    """Path for a cached raw teacher completion."""
-    safe_id = re.sub(r"[^\w\-.]", "_", problem_id)
-    return cache_dir / teacher / task_type / f"{safe_id}.txt"
+    """Path for cached raw teacher completion keyed by (teacher_id, question)."""
+    safe_teacher = re.sub(r"[^\w\-.]", "_", teacher_id.replace("/", "__"))
+    digest = hashlib.sha256(question.encode("utf-8")).hexdigest()[:16]
+    return cache_dir / safe_teacher / f"{digest}.txt"
 
 
 def load_teacher_cache(path: Path) -> str | None:
