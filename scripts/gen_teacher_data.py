@@ -32,7 +32,9 @@ SEED_DEFAULT = 0
 TEACHER_REGISTRY: dict[str, dict[str, str]] = {
     "qwen3-0p6b": {"kind": "local_qwen", "model": "Qwen/Qwen3-0.6B"},
     "qwen3-1p7b": {"kind": "local_qwen", "model": "Qwen/Qwen3-1.7B"},
-    # Together serverless API model strings (verified 2026-03).
+    # Together serverless IDs (verified via GET /v1/models, 2026-06-28).
+    # deepseek-v4: strongest DeepSeek V4 reasoning model on Together.
+    # qwen3p5-397b: largest Qwen3.5 MoE (397B) chat endpoint on Together.
     "deepseek-v4": {
         "kind": "together",
         "model": "deepseek-ai/DeepSeek-V4-Pro",
@@ -218,6 +220,17 @@ def generate_local_qwen(
     return parse_local_qwen_output(text)
 
 
+def _together_message_text(message: Any) -> str:
+    """Extract usable text from Together chat completion message."""
+    content = (message.content or "").strip()
+    reasoning = (getattr(message, "reasoning", None) or "").strip()
+    if content and reasoning:
+        return f"{reasoning}\n{content}"
+    if content:
+        return content
+    return reasoning
+
+
 def generate_together(
     question: str,
     model_id: str,
@@ -232,16 +245,21 @@ def generate_together(
     user_content = (
         question + " Reason step by step, then end with 'The answer is <number>.'"
     )
-    response = client.chat.completions.create(
-        model=model_id,
-        temperature=0.3,
-        max_tokens=512,
-        messages=[{"role": "user", "content": user_content}],
-    )
-    content = response.choices[0].message.content
-    if not content or not content.strip():
+    create_kwargs: dict[str, Any] = {
+        "model": model_id,
+        "temperature": 0.3,
+        "max_tokens": 512,
+        "messages": [{"role": "user", "content": user_content}],
+    }
+    # Qwen3.5 on Together emits an empty content field when reasoning mode is on.
+    if "Qwen3.5" in model_id or "397B" in model_id:
+        create_kwargs["extra_body"] = {"reasoning": {"enabled": False}}
+
+    response = client.chat.completions.create(**create_kwargs)
+    text = _together_message_text(response.choices[0].message)
+    if not text:
         return None
-    thought, answer = parse_together_output(content)
+    thought, answer = parse_together_output(text)
     if not thought or not answer:
         return None
     return thought, answer
