@@ -26,6 +26,8 @@ htmlcov/
 
 # Project artifacts (local training outputs)
 artifacts/
+teacher_cache/
+teacher_cache_smoke/
 *.memmap
 
 # OS

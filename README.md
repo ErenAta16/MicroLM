@@ -103,6 +103,21 @@ Validated prompt formats and decoding for external HuggingFace checkpoints (`gen
 | SFT prompt | Same reasoning format as eval (open `<|begin_of_thought|>` in masked prompt) |
 | External-base SFT defaults | `epochs=6`, `lr=3e-4`, `batch_size=4`, `max_len=768` (`configs/scale_ladder.yaml`) |
 
+### R2 teacher data (local CLI)
+
+Generate teacher SFT JSONL caches for the R2 Colab notebook:
+
+```bash
+pip install -e ".[gpu]"   # torch, transformers, openai, bitsandbytes (optional 4-bit)
+export TOGETHER_API_KEY=... # for deepseek-v4 / qwen3p5-397b
+python scripts/gen_teacher_data.py --teacher qwen3-0p6b --n 200
+python scripts/gen_teacher_data.py --teacher all --n 200 --out-dir ./teacher_cache
+```
+
+Writes `r2_{teacher}.jsonl` (e.g. `r2_qwen3-0p6b.jsonl`) to `--out-dir`. Upload these files to Google Drive **`MyDrive/MicroLM/sft_data/`** so the R2 Colab notebook cache-hits and skips re-generation.
+
+Teachers: `qwen3-0p6b`, `qwen3-1p7b` (local GPU), `deepseek-v4`, `qwen3p5-397b` (Together API).
+
 ## Development
 
 ```bash
