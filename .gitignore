@@ -30,9 +30,26 @@ teacher_cache/
 teacher_cache_smoke/
 *.memmap
 
+# Checkpoints and large model files
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Large data (use release bundle download if gitignored)
+data/sft/*.jsonl
+data/eval/*.jsonl
+!data/sft/.gitkeep
+!data/eval/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Internal / non-release docs
+hollow_chains_research_report.md
