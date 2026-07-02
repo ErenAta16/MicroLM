@@ -9,7 +9,7 @@ description = "Structural Fidelity vs Semantic Correctness in tiny LM reasoning 
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-authors = [{ name = "Eren Ata" }]
+authors = [{ name = "Anonymous" }]
 dependencies = [
     "numpy>=1.26",
     "scipy>=1.11",

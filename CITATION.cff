@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+title: "Hollow Chains: Structural Fidelity without Semantic Correctness in Sub-Billion Reasoning Models"
+message: "If you use this software, please cite it using the metadata from this file."
+license: MIT
+repository-code: "https://github.com/ErenAta16/MicroLM"
+keywords:
+  - language models
+  - reasoning
+  - evaluation
+  - structural fidelity
+preferred-citation: paper
+authors:
+  - name: "Anonymous"
+    affiliation: "Under double-blind review"
